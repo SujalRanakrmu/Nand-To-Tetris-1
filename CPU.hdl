@@ -1,0 +1,46 @@
+// CPU.hdl - Hack CPU
+// Name: Sujal Rana | Roll: 2501730343 | K = 41
+// Instruction layout: i xx a cccccc ddd jjj
+//   [15]=i  [12]=a  [11..6]=c1..c6  [5]=d1(A) [4]=d2(D) [3]=d3(M)  [2]=j1(<0) [1]=j2(=0) [0]=j3(>0)
+CHIP CPU {
+    IN  inM[16], instruction[16], reset;
+    OUT outM[16], writeM, addressM[15], pc[15];
+
+    PARTS:
+    // ---- A register input: instruction itself (A-instr) or ALU output (C-instr)
+    Mux16(a=instruction, b=aluOut, sel=instruction[15], out=aIn);
+
+    // ---- A register loads for an A-instruction, or a C-instruction with d1=1
+    Not(in=instruction[15], out=isA);
+    And(a=instruction[15], b=instruction[5], out=cLoadA);
+    Or(a=isA, b=cLoadA, out=loadA);
+    ARegister(in=aIn, load=loadA, out=aOut, out[0..14]=addressM);
+
+    // ---- D register loads only for C-instruction with d2=1
+    And(a=instruction[15], b=instruction[4], out=loadD);
+    DRegister(in=aluOut, load=loadD, out=dOut);
+
+    // ---- ALU second operand: A (a=0) or M (a=1)
+    Mux16(a=aOut, b=inM, sel=instruction[12], out=aluY);
+    ALU(x=dOut, y=aluY,
+        zx=instruction[11], nx=instruction[10],
+        zy=instruction[9],  ny=instruction[8],
+        f=instruction[7],   no=instruction[6],
+        out=aluOut, out=outM, zr=zr, ng=ng);
+
+    // ---- writeM only for C-instruction with d3=1
+    And(a=instruction[15], b=instruction[3], out=writeM);
+
+    // ---- Jump logic
+    Or(a=zr, b=ng, out=zrOrNg);
+    Not(in=zrOrNg, out=pos);                 // out > 0
+    And(a=instruction[2], b=ng,  out=jLT);
+    And(a=instruction[1], b=zr,  out=jEQ);
+    And(a=instruction[0], b=pos, out=jGT);
+    Or(a=jLT, b=jEQ, out=jLE);
+    Or(a=jLE, b=jGT, out=jumpCond);
+    And(a=jumpCond, b=instruction[15], out=jump);   // never jump on A-instruction
+
+    // ---- Program counter
+    PC(in=aOut, load=jump, inc=true, reset=reset, out[0..14]=pc);
+}
